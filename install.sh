@@ -31,7 +31,19 @@ error() {
 # Check if running as root
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        error "This script must be run as root. Use: sudo bash install.sh"
+        error "This script must be run as root. Please run: sudo su - then run the script again"
+    fi
+    
+    # Check if using sudo (which can cause issues with CyberPanel installer)
+    if [[ -n "$SUDO_USER" ]]; then
+        warning "Detected SUDO usage. CyberPanel installer may have issues."
+        echo "Recommended: Run 'sudo su -' first, then run this script"
+        read -p "Continue anyway? (y/n): " -r
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            echo "Please run: sudo su -"
+            echo "Then run: bash install.sh"
+            exit 0
+        fi
     fi
 }
 
@@ -143,55 +155,28 @@ update_system() {
 install_cyberpanel() {
     log "Installing CyberPanel..."
     
-    # Download and run CyberPanel installer
-    curl -fsSL https://cyberpanel.net/install.sh -o cyberpanel_install.sh
-    
-    # Create expect script for automated installation
-    cat > cyberpanel_expect.exp << 'EOF'
-#!/usr/bin/expect -f
-set timeout 300
-spawn bash cyberpanel_install.sh
+    # Check if we're in a clean root environment
+    if [[ -n "$SUDO_USER" ]]; then
+        warning "Running CyberPanel installer in sudo environment. Switching to pure root..."
+        # Switch to pure root environment for CyberPanel installation
+        cat > /tmp/cyberpanel_install.sh << 'INSTALL_SCRIPT'
+#!/bin/bash
+cd /root
+export HOME=/root
+export USER=root
+unset SUDO_USER SUDO_UID SUDO_GID
 
-# Install CyberPanel
-expect "Please choose to install" { send "1\r" }
+# Download and run CyberPanel installer
+curl -fsSL https://cyberpanel.net/install.sh | bash
 
-# Choose OpenLiteSpeed
-expect "Choose LiteSpeed version" { send "1\r" }
-
-# Full installation
-expect "Do you want to install full service" { send "Y\r" }
-
-# Local MySQL
-expect "Remote MySQL" { send "N\r" }
-
-# Latest version
-expect "CyberPanel Version" { send "\r" }
-
-# Generate random password
-expect "Please choose a password" { send "r\r" }
-
-# Memcached
-expect "Memcached" { send "Y\r" }
-
-# Redis
-expect "Redis" { send "Y\r" }
-
-# Watchdog
-expect "Watchdog" { send "Y\r" }
-
-expect eof
-EOF
-    
-    chmod +x cyberpanel_expect.exp
-    
-    # Install expect if not present
-    apt install -y expect
-    
-    # Run automated installation
-    ./cyberpanel_expect.exp
-    
-    # Clean up
-    rm -f cyberpanel_install.sh cyberpanel_expect.exp
+INSTALL_SCRIPT
+        chmod +x /tmp/cyberpanel_install.sh
+        /tmp/cyberpanel_install.sh
+        rm -f /tmp/cyberpanel_install.sh
+    else
+        # Normal installation for pure root
+        curl -fsSL https://cyberpanel.net/install.sh | bash
+    fi
     
     log "✅ CyberPanel installation completed"
 }
