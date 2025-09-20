@@ -1,0 +1,1 @@
+# cyberpanel-n8n-installer
